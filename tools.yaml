@@ -4,15 +4,19 @@
 # Nothing here has to be running beforehand, and every one of these is equally usable
 # from its own terminal with the assistant absent.
 #
+# Paths may use ~ and $VAR, and a relative path is resolved against THIS FILE's directory
+# rather than the working directory — so the defaults below assume the tools are siblings
+# of this repository. Point them anywhere by editing these, or by setting the variables.
+#
 # `env` is where a tool's paths and credentials are injected. A tool never discovers
 # either for itself.
 
 servers:
   - name: meet-ai
-    command: /home/philip/Documents/meet-ai/mcp
-    cwd: /home/philip/Documents/meet-ai
+    command: ${MEET_AI_HOME:-../meet-ai}/mcp
+    cwd: ${MEET_AI_HOME:-../meet-ai}
 
   - name: docu-ai
     command: npm
     args: ["run", "--silent", "mcp"]
-    cwd: /home/philip/Documents/docu-ai
+    cwd: ${DOCU_AI_HOME:-../docu-ai}

@@ -23,9 +23,16 @@ them exists:
 ```yaml
 servers:
   - name: meet-ai
-    command: /home/philip/Documents/meet-ai/mcp
-    cwd: /home/philip/Documents/meet-ai
+    command: ${MEET_AI_HOME:-../meet-ai}/mcp
+    cwd: ${MEET_AI_HOME:-../meet-ai}
 ```
+
+Paths take `~`, `$VAR` and `${VAR:-fallback}`, and a **relative path resolves against
+`tools.yaml` itself**, not the working directory — so the defaults assume the tools are
+siblings of this repository and work on a fresh machine unedited. An unset variable with no
+fallback is an error rather than a literal, because a child process launched with a
+nonsense path fails nowhere near its cause. A bare command like `npm` is left for `PATH`
+to find.
 
 `env` on a server entry is where that tool's paths and credentials are injected. A tool
 never discovers either for itself.

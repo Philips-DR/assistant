@@ -9,6 +9,7 @@ at a boundary is the cheaper mistake.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -83,9 +84,58 @@ class ToolServer:
         return self.name.replace("-", "_")
 
 
+# ${VAR}, $VAR, and ${VAR:-fallback}. The fallback form is the one that matters: it lets a
+# config name an override variable AND a sensible default in the same line, which is what
+# makes the shipped tools.yaml work on a fresh machine without being edited first.
+_VAR = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}|\$(\w+)")
+
+
+def expand(value: str, base: Path, where: str) -> str:
+    """Expand ~ and $VAR in a config value.
+
+    An unset variable with no fallback is an error rather than a literal. Leaving it as
+    text would launch a child process with a nonsense path and produce a failure nowhere
+    near its cause.
+    """
+
+    def replace(match: re.Match) -> str:
+        name = match.group(1) or match.group(3)
+        fallback = match.group(2)
+        found = os.environ.get(name)
+        if found is not None:
+            return found
+        if fallback is not None:
+            return fallback
+        raise ValueError(f"{where}: ${name} is not set and has no fallback (in {value!r})")
+
+    return os.path.expanduser(_VAR.sub(replace, value))
+
+
+def _resolve_path(value: str, base: Path, where: str) -> str:
+    """A path in tools.yaml is relative to tools.yaml, not to whatever the cwd happens to be.
+
+    Sibling repositories are the normal layout, so "../meet-ai/mcp" should mean what it
+    looks like no matter which directory the assistant was started from.
+    """
+    expanded = expand(value, base, where)
+    candidate = Path(expanded)
+    return str(candidate if candidate.is_absolute() else (base / candidate).resolve())
+
+
+def _looks_like_a_path(command: str) -> bool:
+    """"npm" is a PATH lookup; "../meet-ai/mcp" is a file. Resolving the first would break it."""
+    return os.sep in command or command.startswith(("~", "."))
+
+
 def load_tool_servers(path: Path) -> list[ToolServer]:
-    """Read tools.yaml -- the only file in the system that knows every tool exists."""
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    """Read tools.yaml -- the only file in the system that knows every tool exists.
+
+    Values may use ~ and $VAR, and any relative path is resolved against this file's own
+    directory. Nothing in here should ever need to name a particular user's home.
+    """
+    path = Path(path)
+    base = path.parent.resolve()
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     servers = data.get("servers")
     if not isinstance(servers, list):
         raise ValueError(f"{path} has no 'servers' list")
@@ -94,13 +144,24 @@ def load_tool_servers(path: Path) -> list[ToolServer]:
     for entry in servers:
         if not entry.get("name") or not entry.get("command"):
             raise ValueError(f"{path}: every server needs a name and a command")
+
+        name = str(entry["name"])
+        where = f"{path}: server {name!r}"
+        command = str(entry["command"])
+
         out.append(
             ToolServer(
-                name=str(entry["name"]),
-                command=str(entry["command"]),
-                args=[str(a) for a in entry.get("args", [])],
-                cwd=str(entry["cwd"]) if entry.get("cwd") else None,
-                env={str(k): str(v) for k, v in (entry.get("env") or {}).items()},
+                name=name,
+                command=_resolve_path(command, base, where) if _looks_like_a_path(command)
+                        else expand(command, base, where),
+                # Arguments get ~ and $VAR but never relative resolution: an argument is as
+                # likely to be a flag or a literal as a path, and guessing would corrupt it.
+                args=[expand(str(a), base, where) for a in entry.get("args", [])],
+                cwd=_resolve_path(str(entry["cwd"]), base, where) if entry.get("cwd") else None,
+                env={
+                    str(k): expand(str(v), base, where)
+                    for k, v in (entry.get("env") or {}).items()
+                },
             )
         )
     return out
