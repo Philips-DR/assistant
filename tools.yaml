@@ -20,3 +20,7 @@ servers:
     command: npm
     args: ["run", "--silent", "mcp"]
     cwd: ${DOCU_AI_HOME:-../docu-ai}
+
+  - name: mail-ai
+    command: ${MAIL_AI_HOME:-../mail-ai}/mcp
+    cwd: ${MAIL_AI_HOME:-../mail-ai}
