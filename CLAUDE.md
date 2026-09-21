@@ -66,6 +66,22 @@ to find once — an `AttributeError` from the rename above, presenting as a hang
   failed build as `ok` is worse than no audit log.
 - The audit log never raises. A broken log must not break the work.
 
+## Approval previews
+
+- **A tool may declare, in `_meta`, the read-only tool that renders its effect.** The gate
+  calls it and shows the result instead of the arguments. This exists because
+  `send_draft(draft_id, confirmation)` cannot be approved from its arguments, and the
+  assistant must not learn what an email is in order to fix that.
+- **Verify the named tool is read-only before calling it.** Otherwise a tool could name a
+  destructive "preview" and have it run before anyone approved anything.
+- **Never fall back silently.** A declared preview that could not be produced is announced;
+  otherwise it is indistinguishable from a tool that offered none, and someone approves a
+  send believing they saw it.
+- **Sanitise preview text.** It is untrusted content — an email body — printed directly
+  above a yes/no prompt, where escape sequences could repaint the screen or fake the prompt.
+  Strip C0/C1 controls except newline and tab, and cap the length so a huge body cannot
+  scroll the call being approved off the screen.
+
 ## The gate, continued
 
 - **A gate that cannot get an answer declines.** `input()` raises `EOFError` when stdin is

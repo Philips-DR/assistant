@@ -7,6 +7,7 @@ one of them exists.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from contextlib import AsyncExitStack
@@ -26,6 +27,36 @@ QUALIFIER = "__"
 # Built-in tools are namespaced like any server, so a model cannot tell them apart from a
 # real one and the gate treats them identically.
 LOCAL_SERVER = "assistant"
+
+
+@dataclass(frozen=True)
+class ApprovalPreview:
+    """How a tool says its effect should be shown before someone approves it.
+
+    A destructive tool whose arguments are opaque identifiers cannot be approved from its
+    arguments: `send_draft(draft_id, confirmation)` says nothing about who the mail is for
+    or what it says. A tool may therefore point at the read-only tool that renders its
+    effect, and the gate shows that instead.
+
+    Declared by the tool in MCP's `_meta`, so the assistant never learns what any
+    particular tool does -- only how to ask it.
+    """
+
+    tool: str
+    argument_map: dict[str, str]
+    field: str | None = None
+
+    @staticmethod
+    def parse(meta: Any) -> "ApprovalPreview | None":
+        spec = (meta or {}).get("approval") if isinstance(meta, dict) else None
+        if not isinstance(spec, dict) or not spec.get("preview_tool"):
+            return None
+        mapping = spec.get("argument_map")
+        return ApprovalPreview(
+            tool=str(spec["preview_tool"]),
+            argument_map={str(k): str(v) for k, v in mapping.items()} if isinstance(mapping, dict) else {},
+            field=str(spec["field"]) if spec.get("field") else None,
+        )
 
 
 @dataclass(frozen=True)
@@ -61,6 +92,7 @@ class RemoteTool:
     description: str
     input_schema: dict[str, Any]
     read_only: bool
+    preview: ApprovalPreview | None = None
 
     def as_anthropic_tool(self) -> dict[str, Any]:
         return {
@@ -140,6 +172,7 @@ class ToolRegistry:
                     # Absent means "not declared safe". Defaulting the other way would let
                     # a tool that forgot to annotate itself past the approval gate.
                     read_only=bool(annotations and annotations.read_only_hint),
+                    preview=ApprovalPreview.parse(tool.meta),
                 )
             )
         return out
@@ -149,6 +182,39 @@ class ToolRegistry:
 
     def anthropic_tools(self) -> list[dict[str, Any]]:
         return [tool.as_anthropic_tool() for tool in self.tools]
+
+    async def preview_of(self, tool: RemoteTool, arguments: dict[str, Any]) -> str | None:
+        """Render what this call would do, by asking the tool the tool named.
+
+        None means "declared a preview and it could not be produced", which the caller must
+        surface rather than quietly showing raw arguments as though nothing were missing.
+        """
+        spec = tool.preview
+        if spec is None:
+            return None
+
+        target = self.find(f"{tool.server}{QUALIFIER}{spec.tool}")
+        # A preview that could act would be a hole rather than a help: a tool could name a
+        # destructive "preview" and have it run before anyone approved anything.
+        if target is None or not target.read_only:
+            return None
+
+        arguments_for_preview = {
+            parameter: arguments[source]
+            for parameter, source in spec.argument_map.items()
+            if source in arguments
+        }
+        outcome = await self.call(target, arguments_for_preview)
+        if outcome.is_error:
+            return None
+
+        if spec.field is None:
+            return outcome.text
+        try:
+            value = json.loads(outcome.text).get(spec.field)
+        except (json.JSONDecodeError, AttributeError):
+            return None
+        return str(value) if value else None
 
     async def call(self, tool: RemoteTool, arguments: dict[str, Any]) -> "ToolOutcome":
         """Call a tool and report honestly whether it worked.

@@ -278,3 +278,85 @@ def test_an_interrupt_at_the_prompt_is_a_decline():
         raise KeyboardInterrupt
 
     assert approve(tool(read_only=False), {"a": 1}, interrupted) is False
+
+
+# ---------------------------------------------------------------------------
+# Previews in the approval prompt
+# ---------------------------------------------------------------------------
+
+def previewing_tool() -> RemoteTool:
+    from assistant.tools import ApprovalPreview
+
+    return RemoteTool(
+        server="mail_ai", name="send_draft", qualified_name="mail_ai__send_draft",
+        description="", input_schema={}, read_only=False,
+        preview=ApprovalPreview(tool="review_draft", argument_map={"draft_id": "draft_id"},
+                                field="rendered"),
+    )
+
+
+def test_a_preview_declaration_is_read_off_the_tools_own_meta():
+    from assistant.tools import ApprovalPreview
+
+    spec = ApprovalPreview.parse({"approval": {
+        "preview_tool": "review_draft", "argument_map": {"draft_id": "draft_id"},
+        "field": "rendered",
+    }})
+    assert spec == ApprovalPreview("review_draft", {"draft_id": "draft_id"}, "rendered")
+
+
+def test_a_tool_with_no_meta_declares_no_preview():
+    from assistant.tools import ApprovalPreview
+
+    assert ApprovalPreview.parse(None) is None
+    assert ApprovalPreview.parse({}) is None
+    assert ApprovalPreview.parse({"approval": {"nothing": "useful"}}) is None
+
+
+def test_the_preview_is_what_the_prompt_shows(capsys):
+    """Approving send_draft(draft_id, confirmation) from two opaque strings is not
+    approval, whatever the prompt says."""
+    approve(previewing_tool(), {"draft_id": "r-1", "confirmation": "abc"},
+            lambda _p: "y", preview="To: kwame@example.com\nSubject: Re: Claims\n\nTuesday works.")
+    shown = capsys.readouterr().out
+    assert "kwame@example.com" in shown
+    assert "Tuesday works." in shown
+
+
+def test_a_declared_preview_that_could_not_be_produced_is_said_out_loud(capsys):
+    """Silently falling back to raw arguments looks identical to a tool that never offered
+    a preview -- and the person approves a send believing they have seen it."""
+    approve(previewing_tool(), {"draft_id": "r-1"}, lambda _p: "n",
+            preview=None, preview_expected=True)
+    assert "could not be produced" in capsys.readouterr().out
+
+
+def test_a_tool_that_never_offered_a_preview_gets_no_warning(capsys):
+    approve(tool(read_only=False), {"a": 1}, lambda _p: "n")
+    assert "could not be produced" not in capsys.readouterr().out
+
+
+def test_control_characters_are_stripped_from_preview_text():
+    """Preview text is an email body printed directly above a yes/no prompt. Escape
+    sequences there could repaint the screen or fake the prompt itself."""
+    from assistant.approval import sanitise
+
+    hostile = "To: victim@x.com\x1b[2J\x1b[H  run this?\n  something.harmless\n  [y/N] y"
+    cleaned = sanitise(hostile)
+    assert "\x1b" not in cleaned
+    assert "victim@x.com" in cleaned
+
+
+def test_a_very_long_preview_is_truncated():
+    """A huge body must not scroll the call being approved off the top of the screen."""
+    from assistant.approval import PREVIEW_LIMIT, sanitise
+
+    cleaned = sanitise("x" * (PREVIEW_LIMIT * 2))
+    assert len(cleaned) < PREVIEW_LIMIT + 100
+    assert "truncated" in cleaned
+
+
+def test_newlines_and_tabs_survive_sanitising():
+    from assistant.approval import sanitise
+
+    assert sanitise("a\nb\tc") == "a\nb\tc"

@@ -143,3 +143,39 @@ def test_forget_removes_one(store):
 def test_forgetting_an_unknown_id_reports_it_rather_than_failing(store):
     forget = next(t for t in memory_tools(store) if t.name == "forget")
     assert "error" in json.loads(forget.handler({"id": "nope"}))
+
+
+# ---------------------------------------------------------------------------
+# Preview resolution (registry-level, no servers)
+# ---------------------------------------------------------------------------
+
+def test_a_preview_tool_that_is_not_read_only_is_refused():
+    """A "preview" that could act would be a hole rather than a help: a tool could name a
+    destructive preview and have it run before anyone approved anything."""
+    import asyncio
+
+    from assistant.tools import ApprovalPreview, RemoteTool, ToolRegistry
+
+    registry = ToolRegistry([])
+    caller = RemoteTool(server="s", name="send", qualified_name="s__send", description="",
+                        input_schema={}, read_only=False,
+                        preview=ApprovalPreview(tool="sneaky", argument_map={}))
+    registry.tools = [
+        caller,
+        RemoteTool(server="s", name="sneaky", qualified_name="s__sneaky", description="",
+                   input_schema={}, read_only=False),
+    ]
+    assert asyncio.run(registry.preview_of(caller, {})) is None
+
+
+def test_a_preview_naming_a_tool_that_does_not_exist_is_refused():
+    import asyncio
+
+    from assistant.tools import ApprovalPreview, RemoteTool, ToolRegistry
+
+    registry = ToolRegistry([])
+    caller = RemoteTool(server="s", name="send", qualified_name="s__send", description="",
+                        input_schema={}, read_only=False,
+                        preview=ApprovalPreview(tool="missing", argument_map={}))
+    registry.tools = [caller]
+    assert asyncio.run(registry.preview_of(caller, {})) is None

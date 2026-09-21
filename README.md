@@ -58,6 +58,48 @@ writing.** Failing closed is the only safe default.
 Anything that is not an explicit `y`/`yes` is a decline, including `ok` and `sure`. A gate
 that guesses at intent is not a gate.
 
+### When arguments are not enough to approve
+
+Some calls cannot be judged from their arguments. `send_draft(draft_id, confirmation)` is
+two opaque strings — no recipient, no subject, not a word of the body. Approving that is
+not approval.
+
+So a tool may point at the read-only tool that renders its effect, in MCP's `_meta`:
+
+```json
+{"approval": {"preview_tool": "review_draft",
+              "argument_map": {"draft_id": "draft_id"},
+              "field": "rendered"}}
+```
+
+The gate calls it before asking, and shows that instead:
+
+```
+  run this?
+  mail_ai.send_draft
+
+  To: kwame@example.com
+  Subject: Re: Claims review
+
+  Tuesday works for me.
+
+  { "draft_id": "r-8891", "confirmation": "a5c8bae607a53430" }
+  [y/N]
+```
+
+The assistant never learns what an email is — only how to ask. Three rules make it safe:
+
+- **The named tool must be read-only.** A "preview" that could act would be a hole rather
+  than a help — a tool could name a destructive preview and have it run before anyone
+  approved anything.
+- **A declared preview that fails is said out loud.** Falling back silently to raw arguments
+  looks identical to a tool that never offered one, and the person approves believing they
+  have seen it.
+- **Preview text is sanitised.** It is content the assistant did not write — an email body —
+  printed directly above a yes/no prompt. Control characters are stripped and the length is
+  capped, so it cannot repaint the screen, hide the real recipient, or paint a convincing
+  fake prompt.
+
 The model is told not to ask permission in prose, because the gate already does that. Both
 at once makes two gates and a conversation that stalls waiting for an answer it was never
 going to act on.

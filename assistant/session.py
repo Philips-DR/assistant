@@ -126,7 +126,18 @@ async def run_turn(
                 continue
 
             arguments = dict(block.input or {})
-            if needs_approval(tool) and not approve(tool, arguments, ask):
+
+            # Fetched before asking, not after: the preview is the thing being approved.
+            preview = None
+            if needs_approval(tool) and tool.preview is not None:
+                try:
+                    preview = await registry.preview_of(tool, arguments)
+                except Exception:
+                    preview = None  # reported at the prompt, never swallowed
+
+            if needs_approval(tool) and not approve(
+                tool, arguments, ask, preview=preview, preview_expected=tool.preview is not None
+            ):
                 record(audit_path, tool=tool.qualified_name, arguments=arguments,
                        outcome="declined")
                 results.append({
