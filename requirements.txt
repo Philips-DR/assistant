@@ -1,0 +1,5 @@
+anthropic==1.7.0
+boto3==1.43.98
+botocore==1.43.98
+mcp==2.2.0
+PyYAML==6.0.3

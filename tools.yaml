@@ -1,0 +1,18 @@
+# The only file in the system that knows every tool exists.
+#
+# Each entry is a child process the assistant launches and speaks MCP to over stdio.
+# Nothing here has to be running beforehand, and every one of these is equally usable
+# from its own terminal with the assistant absent.
+#
+# `env` is where a tool's paths and credentials are injected. A tool never discovers
+# either for itself.
+
+servers:
+  - name: meet-ai
+    command: /home/philip/Documents/meet-ai/mcp
+    cwd: /home/philip/Documents/meet-ai
+
+  - name: docu-ai
+    command: npm
+    args: ["run", "--silent", "mcp"]
+    cwd: /home/philip/Documents/docu-ai
