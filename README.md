@@ -77,6 +77,44 @@ docu_ai__build            failed   invalid_grant
 A tool that reports its own failure is recorded as a failure — see CLAUDE.md for why that
 sentence had to be earned.
 
+## Memory
+
+A small JSON file of facts, all of which go into the system prompt. It is plain text and
+safe to edit by hand.
+
+```bash
+./assistant-cli "remember that Kwame leads the claims project"
+./assistant-cli --no-memory "..."     # load nothing, record nothing
+```
+
+Not pgvector, and not yet. Retrieval only earns its infrastructure once there is more than
+fits in a prompt; at personal scale, sending every fact is simpler than top-k similarity
+*and* strictly more accurate, because nothing relevant can be missed. `MemoryStore.relevant()`
+is the seam a vector store would sit behind when that stops being true.
+
+Recording the same kind and subject twice corrects the earlier note rather than adding a
+second one — two contradictory facts in one prompt is worse than either alone.
+
+Memory is framed to the model as background rather than instruction. A remembered line is
+something you wrote once; it should not outrank what you are saying now.
+
+### The lexicon
+
+Facts of kind `spelling` become a lexicon that meet-ai uses to fix names and jargon it
+mis-hears:
+
+```
+remember  kind=spelling  subject="round robin"  content="round robinson, round robins"
+```
+
+At the start of each session that lexicon is written to `lexicon.json` and its path is put
+in the prompt, so the assistant can hand it to any tool that takes one. meet-ai still knows
+nothing about a memory store — it takes a lexicon as an argument, which is what keeps it
+usable on its own.
+
+Both memory tools pass through the approval gate like any other write. That is deliberate:
+you should see what the assistant writes down about you, at the moment it decides to.
+
 ## Where the model comes from
 
 Bedrock by default, or the Anthropic API when `ANTHROPIC_API_KEY` is set; `--provider`

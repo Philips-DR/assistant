@@ -262,3 +262,19 @@ def test_nothing_in_the_shipped_config_names_a_particular_user(tmp_path):
 
     shipped = _Path(__file__).resolve().parent.parent / "tools.yaml"
     assert "/home/" not in shipped.read_text(encoding="utf-8")
+
+
+def test_a_gate_that_cannot_get_an_answer_declines():
+    """Found live: piped input ran out mid-chain, input() raised EOFError, and the whole
+    turn died with two writes already done. A gate must fail closed, not crash."""
+    def exhausted(_prompt):
+        raise EOFError
+
+    assert approve(tool(read_only=False), {"a": 1}, exhausted) is False
+
+
+def test_an_interrupt_at_the_prompt_is_a_decline():
+    def interrupted(_prompt):
+        raise KeyboardInterrupt
+
+    assert approve(tool(read_only=False), {"a": 1}, interrupted) is False

@@ -45,8 +45,22 @@ asking first as well makes two gates and stalls the work. Say what you are about
 then call the tool and let the user answer the prompt.
 
 If a call comes back saying the user declined, accept it and stop. Do not look for another \
-route to the same effect, and do not ask again.\
+route to the same effect, and do not ask again.
+
+When you learn something durable about the user or their work -- how a name is actually \
+spelled, who someone is, a standing preference -- record it. Do not record the contents of \
+a meeting or a document; those live in the files the tools produce.\
 """
+
+
+def system_prompt(context: str = "") -> str:
+    """The standing instructions, plus what the assistant knows about this user.
+
+    Memory is appended rather than interleaved so the instructions stay a fixed prefix. It
+    is also framed as background rather than instruction, because a remembered line is data
+    the user wrote once and not an order that outranks what they are saying now.
+    """
+    return f"{SYSTEM_PROMPT}\n\n{context}" if context.strip() else SYSTEM_PROMPT
 
 
 def build_client(config: ModelConfig):
@@ -71,6 +85,7 @@ async def run_turn(
     messages: list[dict[str, Any]],
     audit_path: Path,
     ask: Asker = input,
+    context: str = "",
 ) -> str:
     """One user request, through as many tool calls as it takes. Mutates `messages`."""
     client = build_client(config)
@@ -81,7 +96,7 @@ async def run_turn(
             client.messages.create,
             model=config.resolved_model,
             max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
+            system=system_prompt(context),
             # Explicit: on Opus 4.6 omitting this means no thinking at all.
             thinking={"type": "adaptive"},
             tools=tools,

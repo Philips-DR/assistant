@@ -45,12 +45,34 @@ traceback at all. The `except BaseException: await self._stack.__aexit__(*sys.ex
 raise` around that loop is what turns a silent hang into an error message. It cost an hour
 to find once — an `AttributeError` from the rename above, presenting as a hang.
 
+## Memory
+
+- **It is the assistant's own state, and no tool may read it.** Tools take what they need as
+  arguments. The moment a tool reaches into memory, it stops being usable alone and the suite
+  has a shared mutable centre again.
+- **Not pgvector, on purpose.** Everything fits in a prompt at this scale, and sending all of
+  it is more accurate than any retrieval. `relevant()` is the seam; narrow it only when the
+  prompt genuinely gets too big.
+- **Memory failing degrades what the assistant knows, never whether it runs.** A missing or
+  malformed store loads as empty.
+- **Memory is background, not instruction.** It is framed that way in the prompt because a
+  remembered line is data the user wrote once, not an order outranking what they say now.
+- **Both memory tools are gated.** Writing about a person should be visible as it happens.
+
 ## Honest reporting
 
 - **A tool reporting its own failure is a failure.** MCP returns that as `is_error` on an
   otherwise successful response, not as a raised exception. An audit log that records a
   failed build as `ok` is worse than no audit log.
 - The audit log never raises. A broken log must not break the work.
+
+## The gate, continued
+
+- **A gate that cannot get an answer declines.** `input()` raises `EOFError` when stdin is
+  exhausted — piped input that ran out, a non-interactive shell — and letting it propagate
+  kills the turn mid-chain with writes already done. Found live: two approved writes landed,
+  then a third call hit end-of-input and crashed the session. `KeyboardInterrupt` is a
+  decline for the same reason.
 
 ## Testing
 

@@ -1,4 +1,9 @@
 .venv/
 __pycache__/
 *.pyc
+
+# Personal state, never committed: what the assistant knows about you, the lexicon derived
+# from it, and the log of everything it did.
+memory.json
+lexicon.json
 audit.jsonl

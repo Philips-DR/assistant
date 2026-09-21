@@ -11,7 +11,7 @@ import os
 import sys
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -22,6 +22,25 @@ from assistant.config import ToolServer
 # names themselves contain single ones and a collision here would route a call to the
 # wrong server.
 QUALIFIER = "__"
+
+# Built-in tools are namespaced like any server, so a model cannot tell them apart from a
+# real one and the gate treats them identically.
+LOCAL_SERVER = "assistant"
+
+
+@dataclass(frozen=True)
+class LocalTool:
+    """A tool the assistant implements itself, for the things no tool should own.
+
+    Memory is the only such thing: it is the assistant's own state, and putting it behind
+    an MCP server would make it a tool that every other tool would eventually want to read.
+    """
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    read_only: bool
+    handler: Callable[[dict[str, Any]], str]
 
 
 @dataclass(frozen=True)
@@ -54,8 +73,9 @@ class RemoteTool:
 class ToolRegistry:
     """Owns the sessions. Async context manager: entering launches every server."""
 
-    def __init__(self, servers: list[ToolServer]) -> None:
+    def __init__(self, servers: list[ToolServer], local: list[LocalTool] | None = None) -> None:
         self._servers = servers
+        self._local = {tool.name: tool for tool in (local or [])}
         self._sessions: dict[str, ClientSession] = {}
         self._stack = AsyncExitStack()
         self.tools: list[RemoteTool] = []
@@ -63,6 +83,17 @@ class ToolRegistry:
     async def __aenter__(self) -> "ToolRegistry":
         await self._stack.__aenter__()
         try:
+            self.tools.extend(
+                RemoteTool(
+                    server=LOCAL_SERVER,
+                    name=tool.name,
+                    qualified_name=f"{LOCAL_SERVER}{QUALIFIER}{tool.name}",
+                    description=tool.description,
+                    input_schema=tool.input_schema,
+                    read_only=tool.read_only,
+                )
+                for tool in self._local.values()
+            )
             for server in self._servers:
                 session = await self._launch(server)
                 self._sessions[server.safe_name] = session
@@ -127,6 +158,12 @@ class ToolRegistry:
         which is how an audit log ends up recording a build that died on an expired token
         as `ok`, the one thing an audit log must never do.
         """
+        if tool.server == LOCAL_SERVER:
+            try:
+                return ToolOutcome(text=self._local[tool.name].handler(arguments), is_error=False)
+            except Exception as exc:
+                return ToolOutcome(text=str(exc), is_error=True)
+
         result = await self._sessions[tool.server].call_tool(tool.name, arguments)
         blocks = getattr(result, "content", []) or []
         text = "\n".join(b.text for b in blocks if getattr(b, "type", None) == "text")

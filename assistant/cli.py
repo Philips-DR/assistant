@@ -9,7 +9,9 @@ import os
 import sys
 from pathlib import Path
 
+from assistant.builtins import memory_tools
 from assistant.config import PROVIDERS, load_tool_servers, model_config_from_environment
+from assistant.memory import MemoryStore
 from assistant.session import run_turn
 from assistant.tools import ToolRegistry
 
@@ -41,6 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Where to reach Claude. Default: anthropic when "
                              "$ANTHROPIC_API_KEY is set, else bedrock")
     parser.add_argument("--model", default=None, help="Model id")
+    parser.add_argument("-m", "--memory", default=os.environ.get("ASSISTANT_MEMORY",
+                                                                 str(ROOT / "memory.json")),
+                        help="Facts the assistant knows about you. Plain JSON, safe to edit")
+    parser.add_argument("--no-memory", action="store_true",
+                        help="Run without loading or recording anything")
     parser.add_argument("--list", action="store_true",
                         help="List the tools each server offers and exit. Launches the "
                              "servers but calls nothing")
@@ -52,20 +59,37 @@ async def _run(args: argparse.Namespace) -> int:
     config = model_config_from_environment(args.provider, args.model)
     audit_path = Path(args.audit)
 
-    async with ToolRegistry(servers) as registry:
+    store = None if args.no_memory else MemoryStore(Path(args.memory))
+    local_tools = memory_tools(store) if store else []
+    context = store.as_prompt_block() if store else ""
+
+    # The lexicon is derived state, rebuilt from memory every session and handed to tools
+    # by path. Materialising it here rather than exposing a tool for it means no gate
+    # question mid-chain, and means meet-ai still never knows a memory store exists.
+    if store:
+        lexicon_path = store.write_lexicon(Path(args.memory).with_name("lexicon.json"))
+        if lexicon_path:
+            context += (
+                f"\n\nA lexicon of correct spellings is at {lexicon_path}. Pass it as the "
+                f"`lexicon` argument to any tool that accepts one."
+            )
+
+    async with ToolRegistry(servers, local=local_tools) as registry:
         if args.list:
             for tool in registry.tools:
                 mark = "read-only" if tool.read_only else "WRITES"
                 print(f"  {tool.qualified_name:36} {mark}")
             return 0
 
+        known = len(store.load()) if store else 0
         print(f"{len(registry.tools)} tools from {len(servers)} server(s). "
-              f"{config.provider}, {config.resolved_model}.")
+              f"{config.provider}, {config.resolved_model}."
+              + (f" {known} fact(s) remembered." if known else ""))
 
         messages: list[dict] = []
         if args.request:
             messages.append({"role": "user", "content": " ".join(args.request)})
-            print(f"\n{await run_turn(registry, config, messages, audit_path)}\n")
+            print(f"\n{await run_turn(registry, config, messages, audit_path, context=context)}\n")
             return 0
 
         print("Ctrl-D to leave.\n")
@@ -79,7 +103,7 @@ async def _run(args: argparse.Namespace) -> int:
                 continue
             messages.append({"role": "user", "content": line})
             try:
-                print(f"\n{await run_turn(registry, config, messages, audit_path)}\n")
+                print(f"\n{await run_turn(registry, config, messages, audit_path, context=context)}\n")
             except Exception as exc:  # one bad turn should not end the session
                 print(f"!  {exc}\n", file=sys.stderr)
 
