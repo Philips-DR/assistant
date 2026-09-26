@@ -1,6 +1,6 @@
 """Tests for job notifications. The decisions are pure functions, so no server is needed."""
 
-from assistant.watchers import recording_notice, transcription_notice
+from assistant.watchers import login_notice, recording_notice, transcription_notice
 
 
 def job(state, **extra):
@@ -43,3 +43,16 @@ def test_a_recording_that_dies_mid_meeting_is_announced():
 
 def test_a_recording_stopped_normally_is_not_an_alarm():
     assert recording_notice("recording", None) is None
+
+
+def test_a_failing_login_is_announced_once_with_the_fix():
+    status = {"level": "error", "hint": "Run `aws sso login --profile ayadata-bedrock` in a terminal."}
+    notice = login_notice("ok", status)
+    assert notice["title"] == "AWS login needs renewing"
+    assert "aws sso login" in notice["body"]
+    assert login_notice("error", status) is None  # not again on every poll
+
+
+def test_a_login_that_recovers_says_so():
+    assert login_notice("error", {"level": "ok"})["title"] == "AWS login working again"
+    assert login_notice(None, {"level": "ok"}) is None

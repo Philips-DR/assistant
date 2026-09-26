@@ -125,6 +125,41 @@ export interface AuditRow {
 
 export const getHistory = (limit = 200) => request<AuditRow[]>(`/api/history?limit=${limit}`)
 
+export type Level = 'ok' | 'warning' | 'error'
+
+export interface Status {
+  tools: {
+    name: string
+    tools: number
+    level: Level
+    last_call: { at: string; tool: string; outcome: string; error: string } | null
+  }[]
+  model: {
+    provider: string
+    model: string
+    profile: string | null
+    region: string | null
+    level?: Level
+    account?: string
+    role?: string
+    detail?: string
+    hint?: string
+  }
+  mail_compose: boolean
+  network?: {
+    name: string
+    host: string
+    ipv4_ms: number | null
+    ipv4_error: string
+    ipv6_ms: number | null
+    ipv6_error: string
+    verdict: string
+    level: Level
+  }[]
+}
+
+export const getStatus = (live = false) => request<Status>(`/api/status${live ? '?live=true' : ''}`)
+
 export const sendChat = (message: string) =>
   request<{ accepted: boolean }>('/api/chat', { method: 'POST', body: JSON.stringify({ message }) })
 

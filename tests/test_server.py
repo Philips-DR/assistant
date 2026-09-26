@@ -251,3 +251,51 @@ def test_a_read_from_the_interface_is_not_audited_but_a_change_is(tmp_path):
     run(with_client(app_for(tmp_path), body))
     rows = [_json.loads(l) for l in (tmp_path / "audit.jsonl").read_text().splitlines()]
     assert [r["tool"] for r in rows] == ["assistant__remember"]
+
+
+def test_a_button_gets_the_same_spelling_corrections_chat_does(tmp_path):
+    """Chat is told the lexicon's path and passes it on. A button has no model to tell, so
+    until the server filled it in, a spelling taught to the assistant corrected transcripts
+    written up from chat and silently not the ones written up from a button."""
+    import json
+    from assistant.tools import LocalTool
+
+    echo = LocalTool(
+        name="echo", description="Returns its arguments.",
+        input_schema={"type": "object", "properties": {"lexicon": {"type": "string"}}},
+        read_only=True, handler=lambda arguments: json.dumps(arguments),
+    )
+    app = create_app(
+        tmp_path / "tools.yaml", tmp_path / "memory.json", tmp_path / "audit.jsonl", token=TOKEN,
+        registry_factory=lambda local: ToolRegistry([], local=[*local, echo]), watch_jobs=False,
+    )
+
+    async def body(client):
+        before = (await client.post("/api/actions", headers=AUTH, json={"tool": "assistant__echo", "arguments": {}})).json()
+        await client.post("/api/actions", headers=AUTH, json={
+            "tool": "assistant__remember",
+            "arguments": {"kind": "spelling", "subject": "Accra", "content": "Akra"}})
+        after = (await client.post("/api/actions", headers=AUTH, json={"tool": "assistant__echo", "arguments": {}})).json()
+        return before, after
+
+    before, after = run(with_client(app, body))
+    assert "lexicon" not in before["output"]  # nothing taught yet, nothing to pass
+    lexicon = after["output"]["lexicon"]
+    assert json.loads(open(lexicon).read()) == {"Accra": ["Akra"]}
+
+
+
+def test_status_reports_tools_from_the_audit_without_touching_the_network(tmp_path):
+    """Settings opens instantly: no live check unless asked for."""
+    import json
+    (tmp_path / "audit.jsonl").write_text(
+        json.dumps({"at": "t1", "tool": "assistant__remember", "outcome": "ok"}) + "\n")
+
+    async def body(client):
+        return (await client.get("/api/status", headers=AUTH)).json()
+
+    status = run(with_client(app_for(tmp_path), body))
+    assert "network" not in status  # not live
+    assert status["model"]["model"]
+    assert status["mail_compose"] is False
+    assert status["tools"] == []  # only the built-in memory tools, which are not a server

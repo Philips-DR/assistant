@@ -84,3 +84,41 @@ async def watch(registry: ToolRegistry, emit: Emit) -> None:
         except Exception:
             pass  # the next poll will try again
         await asyncio.sleep(POLL_SECONDS)
+
+
+# ---------------------------------------------------------------------------
+# The model login
+# ---------------------------------------------------------------------------
+
+LOGIN_POLL_SECONDS = 600
+
+
+def login_notice(before: str | None, status: dict[str, Any]) -> dict[str, Any] | None:
+    """Announce the model login going bad, once. The SSO access token renews itself from a
+    refresh token, so a countdown to its expiry time would be wrong; the honest signal is
+    the moment a live check first fails."""
+    if status.get("level") == "error" and before != "error":
+        return {"level": "error", "title": "AWS login needs renewing",
+                "body": status.get("hint") or str(status.get("detail", ""))[:200]}
+    if status.get("level") == "ok" and before == "error":
+        return {"level": "success", "title": "AWS login working again",
+                "body": "Notes and minutes can be written."}
+    return None
+
+
+async def watch_login(config: Any, emit: Emit) -> None:
+    from assistant.status import model_status
+
+    level: str | None = None
+    while True:
+        try:
+            status = await asyncio.to_thread(model_status, config)
+            notice = login_notice(level, status)
+            level = status.get("level")
+            if notice:
+                await emit({"type": "notice", **notice})
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass
+        await asyncio.sleep(LOGIN_POLL_SECONDS)

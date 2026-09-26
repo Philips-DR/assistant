@@ -27,3 +27,13 @@ def prepare(memory_path: Path, use_memory: bool = True) -> tuple[MemoryStore | N
                 f"`lexicon` argument to any tool that accepts one."
             )
     return store, local_tools, context
+
+
+def current_lexicon(memory_path: Path) -> Path | None:
+    """Rebuild the lexicon from memory as it stands now, for a door that calls tools itself.
+
+    Chat is told the lexicon's path and passes it; a button press has no model to tell, so
+    the server fills it in -- otherwise a spelling taught to the assistant would correct
+    transcripts written up from chat and silently not those written up from a button.
+    """
+    return MemoryStore(memory_path).write_lexicon(Path(memory_path).with_name("lexicon.json"))

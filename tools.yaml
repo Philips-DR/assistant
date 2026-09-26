@@ -24,3 +24,7 @@ servers:
   - name: mail-ai
     command: ${MAIL_AI_HOME:-../mail-ai}/mcp
     cwd: ${MAIL_AI_HOME:-../mail-ai}
+    env:
+      # Drafting and sending, switched on deliberately (2026-09-26). Sending still needs
+      # two presses in the app, or an approval in chat, over the rendered message.
+      MAIL_AI_COMPOSE: "1"

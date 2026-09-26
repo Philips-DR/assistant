@@ -36,9 +36,10 @@ from pydantic import BaseModel
 from assistant.approval import needs_approval, sanitise
 from assistant.config import load_tool_servers, model_config_from_environment
 from assistant.session import ApprovalRequest, allow_gate, execute, run_turn
-from assistant.setup import prepare
+from assistant.setup import current_lexicon, prepare
+from assistant.status import model_status, network_status, tools_status
 from assistant.tools import RemoteTool, ToolRegistry
-from assistant.watchers import watch
+from assistant.watchers import watch, watch_login
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIST = ROOT / "web" / "dist"
@@ -187,12 +188,15 @@ def create_app(
                             refresh_context=lambda: prepare(memory_path)[2])
         app.state.hub = holder["hub"]
         # Tells the browser when a long job finishes, so nobody has to keep asking.
-        watcher = asyncio.create_task(watch(registry, holder["hub"].emit)) if watch_jobs else None
+        watchers = [
+            asyncio.create_task(watch(registry, holder["hub"].emit)),
+            asyncio.create_task(watch_login(config, holder["hub"].emit)),
+        ] if watch_jobs else []
         try:
             yield
         finally:
-            if watcher is not None:
-                watcher.cancel()
+            for task in watchers:
+                task.cancel()
             await registry.__aexit__(None, None, None)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -280,12 +284,18 @@ def create_app(
                     "preview": sanitise(preview) if preview else None,
                     "preview_expected": True}
 
-        output, outcome = await execute(h.registry, tool, body.arguments, h.audit_path,
+        arguments = dict(body.arguments)
+        if "lexicon" in (tool.input_schema.get("properties") or {}) and "lexicon" not in arguments:
+            lexicon = current_lexicon(memory_path)
+            if lexicon is not None:
+                arguments["lexicon"] = str(lexicon)
+
+        output, outcome = await execute(h.registry, tool, arguments, h.audit_path,
                                         allow_gate, h.emit, origin="button")
         # Only actions that changed something become notes. A status poll every few seconds
         # would bury the model's context in noise.
         if not tool.read_only:
-            h.note(tool, body.arguments, outcome, output)
+            h.note(tool, arguments, outcome, output)
         return {"outcome": outcome, "output": parsed(output)}
 
     @app.get("/api/events")
@@ -313,6 +323,24 @@ def create_app(
 
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    @app.get("/api/status")
+    async def status(live: bool = False) -> dict[str, Any]:
+        """What Settings shows. Tools are read from what is already known; the network and
+        the model login are only checked when asked (live=true), since each costs a round
+        trip."""
+        h = hub()
+        out: dict[str, Any] = {
+            "tools": tools_status(h.registry, h.audit_path),
+            "model": {"provider": h.config.provider, "model": h.config.resolved_model,
+                      "profile": h.config.profile, "region": h.config.region},
+            "mail_compose": h.registry.find("mail_ai__send_draft") is not None,
+        }
+        if live:
+            network, model = await asyncio.gather(
+                asyncio.to_thread(network_status), asyncio.to_thread(model_status, h.config))
+            out["network"], out["model"] = network, model
+        return out
 
     @app.get("/api/history")
     async def audit_history(limit: int = 200) -> list[dict[str, Any]]:

@@ -1,7 +1,7 @@
 // Buttons for meetings: record, transcribe, write notes. The same tools the model calls in
 // chat, called directly -- no model, no waiting on one.
 
-import { useState } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import { runAction } from '../api'
 import { useAppState } from '../state'
 import { clock, fileName, usePoll } from '../usePoll'
@@ -253,6 +253,66 @@ function describe(kind: Kind, output: Record<string, unknown>): string {
   return `${String(output.verified_claims)} verified claims — ${String(output.decisions)} decisions, ${String(output.actions)} actions, ${String(output.questions)} questions`
 }
 
+interface TranscriptText { text: string; truncated: boolean; end: number; duration: number }
+
+/** The transcript itself, to check a line against. A read-only call, so it is neither
+ * audited nor noted for the model -- looking is not acting. */
+function TranscriptReader({ path }: { path: string }) {
+  const [paragraphs, setParagraphs] = useState<string[] | null>(null)
+  const [truncated, setTruncated] = useState(false)
+  const [query, setQuery] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    call<TranscriptText>('meet_ai__read_transcript', { transcript: path })
+      .then((t) => {
+        setParagraphs(t.text.split('\n\n'))
+        setTruncated(t.truncated)
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+  }, [path])
+
+  const needle = query.trim().toLowerCase()
+  const shown = (paragraphs ?? []).filter((p) => !needle || p.toLowerCase().includes(needle))
+
+  const highlight = (text: string) => {
+    if (!needle) return text
+    const parts: (string | ReactElement)[] = []
+    let from = 0
+    const lower = text.toLowerCase()
+    for (let at = lower.indexOf(needle); at >= 0; at = lower.indexOf(needle, from)) {
+      parts.push(text.slice(from, at), <mark key={at}>{text.slice(at, at + needle.length)}</mark>)
+      from = at + needle.length
+    }
+    parts.push(text.slice(from))
+    return parts
+  }
+
+  return (
+    <div className="transcript">
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search the transcript" aria-label="Search the transcript" />
+      {error && <p className="error">{error}</p>}
+      {!paragraphs && !error && <p className="muted">Loading…</p>}
+      {paragraphs && (
+        <p className="muted small">
+          {needle ? `${shown.length} of ${paragraphs.length} paragraphs match` : `${paragraphs.length} paragraphs`}
+          {truncated && ' · very long transcript: only the first part is shown'}
+        </p>
+      )}
+      <div className="transcript-text">
+        {shown.map((p, i) => {
+          const match = /^\[(\d\d:\d\d:\d\d)\]\s*(.*)$/s.exec(p)
+          return (
+            <p key={i}>
+              {match ? <><span className="stamp">{match[1]}</span> {highlight(match[2] ?? '')}</> : highlight(p)}
+            </p>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function Notes() {
   const recordings = usePoll(() => call<Recordings>('meet_ai__list_recordings'), 15000)
   const [previews, setPreviews] = useState<Record<string, Preview>>({})
@@ -260,6 +320,7 @@ function Notes() {
   const [docs, setDocs] = useState<Record<string, BuiltDoc>>({})
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [reading, setReading] = useState('')
   const tools = useAppState().tools
 
   const ready = recordings.data?.transcripts.filter((t) => t.timeline) ?? []
@@ -308,8 +369,16 @@ function Notes() {
             <li key={timeline}>
               <div className="list-main">
                 <strong>{fileName(t.markdown)}</strong>
-                <button disabled={busy === `preview:${timeline}`} onClick={() => void preview(timeline)}>Preview</button>
+                <div className="row">
+                  {tools.has('meet_ai__read_transcript') && (
+                    <button onClick={() => setReading(reading === t.markdown ? '' : t.markdown)}>
+                      {reading === t.markdown ? 'Close transcript' : 'Read transcript'}
+                    </button>
+                  )}
+                  <button disabled={busy === `preview:${timeline}`} onClick={() => void preview(timeline)}>Preview</button>
+                </div>
               </div>
+              {reading === t.markdown && <TranscriptReader path={t.markdown} />}
               {p && <p className="muted">{p.words.toLocaleString()} words · about {p.approx_tokens.toLocaleString()} tokens to send</p>}
               {kinds.map((k) => {
                 const key = `${k.kind}:${timeline}`
