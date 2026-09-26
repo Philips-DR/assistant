@@ -110,6 +110,17 @@ Four things that only showed up by running it:
   "reconnecting" — corrupting exactly what it is measuring. Drive a real browser session
   (Puppeteer against the installed Chrome) instead.
 
+## Memory and history in the interface
+
+- **Facts in the prompt carry their ids.** `forget` takes an id; a prompt showing facts without
+  them left the model no valid way to act on "forget that" — only a guess. `recall` lists them
+  for the interface through the same audited tool path as everything else.
+- **Reads triggered from the interface are not audited, and emit no events.** They are the page
+  looking, and the panels poll every few seconds — auditing them buried the log under tens of
+  thousands of status checks a day. The model's reads are still recorded.
+- **The URL hash is followed on change, not just read on load.** A hash change does not reload
+  the page, so reading it once left back, bookmarks and edited URLs showing the old section.
+
 ## Approval previews
 
 - **A tool may declare, in `_meta`, the read-only tool that renders its effect.** The gate

@@ -148,6 +148,14 @@ async def execute(
                         "outcome": "declined", "origin": origin})
             return "The user declined to run this. Do not attempt it another way.", "declined"
 
+    # A read triggered from the interface is the page looking, not the system acting -- and
+    # the panels poll every few seconds. Recording those buried the audit log: a day with a
+    # tab open was ~43,000 rows of "recording status: ok" around the few that mattered. The
+    # model's reads are still recorded; what it chose to look at is worth knowing.
+    quiet = origin == "button" and tool.read_only
+    if quiet:
+        emit = _discard
+
     await emit({"type": "tool_started", "tool": tool.qualified_name,
                 "arguments": arguments, "origin": origin})
     started = time.monotonic()
@@ -161,16 +169,17 @@ async def execute(
     except Exception as exc:  # the transport dying must not end the conversation
         output, outcome, error = f"tool failed: {exc}", "failed", str(exc)
 
-    record(
-        audit_path,
-        tool=tool.qualified_name,
-        arguments=arguments,
-        outcome=outcome,
-        error=error,
-        duration_ms=int((time.monotonic() - started) * 1000),
-        result=output,
-        origin=origin,
-    )
+    if not quiet:
+        record(
+            audit_path,
+            tool=tool.qualified_name,
+            arguments=arguments,
+            outcome=outcome,
+            error=error,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            result=output,
+            origin=origin,
+        )
     await emit({"type": "tool_finished", "tool": tool.qualified_name, "outcome": outcome,
                 "result": output[:2000], "origin": origin, "read_only": tool.read_only})
     return output, outcome

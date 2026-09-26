@@ -34,8 +34,25 @@ def _forget(store: MemoryStore, arguments: dict[str, Any]) -> str:
     return json.dumps({"forgot": removed.id, "subject": removed.subject})
 
 
+def _recall(store: MemoryStore) -> str:
+    return json.dumps({"facts": [
+        {"id": f.id, "kind": f.kind, "subject": f.subject, "content": f.content, "created": f.created}
+        for f in store.load()
+    ]}, ensure_ascii=False)
+
+
 def memory_tools(store: MemoryStore) -> list[LocalTool]:
     return [
+        LocalTool(
+            name="recall",
+            description=(
+                "List everything remembered about the user, with the id each fact needs to be "
+                "forgotten. Reads only."
+            ),
+            input_schema={"type": "object", "properties": {}},
+            read_only=True,
+            handler=lambda _arguments: _recall(store),
+        ),
         LocalTool(
             name="remember",
             description=(

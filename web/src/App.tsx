@@ -3,11 +3,14 @@ import { useAppState } from './state'
 import { ApprovalCard } from './components/ApprovalCard'
 import { Activity } from './components/Activity'
 import { Chat } from './components/Chat'
+import { History } from './components/History'
 import { Mail } from './components/Mail'
+import { Memory } from './components/Memory'
 import { Meetings } from './components/Meetings'
 
 type Mode = 'chat' | 'buttons'
-type Section = 'meetings' | 'mail'
+type Section = 'meetings' | 'mail' | 'memory' | 'history'
+const SECTIONS: Section[] = ['meetings', 'mail', 'memory', 'history']
 
 function savedMode(): Mode {
   // The URL wins, so a view can be bookmarked or linked; then the last mode used.
@@ -23,10 +26,31 @@ function savedMode(): Mode {
 export function App() {
   const { pending, busy, connected, model } = useAppState()
   const [mode, setMode] = useState<Mode>(savedMode)
-  const [section, setSection] = useState<Section>(location.hash === '#buttons/mail' ? 'mail' : 'meetings')
+  const [section, setSection] = useState<Section>(() => {
+    const named = location.hash.replace('#buttons/', '') as Section
+    return SECTIONS.includes(named) ? named : 'meetings'
+  })
+
+  // The hash is read on load AND whenever it changes. Reading it only once meant the back
+  // button, a bookmark, or an edited URL changed the address but left the old section showing
+  // -- a hash change does not reload the page. (replaceState below does not fire hashchange,
+  // so this cannot loop.)
+  useEffect(() => {
+    const follow = () => {
+      if (location.hash === '#chat') {
+        setMode('chat')
+      } else if (location.hash.startsWith('#buttons')) {
+        setMode('buttons')
+        const named = location.hash.replace('#buttons/', '') as Section
+        setSection(SECTIONS.includes(named) ? named : 'meetings')
+      }
+    }
+    window.addEventListener('hashchange', follow)
+    return () => window.removeEventListener('hashchange', follow)
+  }, [])
 
   useEffect(() => {
-    history.replaceState(null, '', mode === 'buttons' && section === 'mail' ? '#buttons/mail' : `#${mode}`)
+    history.replaceState(null, '', mode === 'buttons' && section !== 'meetings' ? `#buttons/${section}` : `#${mode}`)
     try {
       localStorage.setItem('assistant-mode', mode)
     } catch {
@@ -70,11 +94,17 @@ export function App() {
             )}
             {busy && pending.length === 0 && <p className="muted working-note">The assistant is working on a chat message.</p>}
             <nav className="sections" aria-label="Section">
-              <button className={section === 'meetings' ? 'on' : ''} onClick={() => setSection('meetings')}>Meetings</button>
-              <button className={section === 'mail' ? 'on' : ''} onClick={() => setSection('mail')}>Mail</button>
+              {SECTIONS.map((s) => (
+                <button key={s} className={section === s ? 'on' : ''} onClick={() => setSection(s)}>
+                  {s[0]?.toUpperCase() + s.slice(1)}
+                </button>
+              ))}
             </nav>
             <div className="buttons-grid">
-              {section === 'meetings' ? <Meetings /> : <Mail />}
+              {section === 'meetings' && <Meetings />}
+              {section === 'mail' && <Mail />}
+              {section === 'memory' && <Memory />}
+              {section === 'history' && <History />}
               <Activity />
             </div>
           </div>

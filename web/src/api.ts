@@ -105,6 +105,17 @@ export const getState = () => request<ServerState>('/api/state')
 
 export const getTools = () => request<ToolInfo[]>('/api/tools')
 
+export interface AuditRow {
+  at: string
+  tool: string
+  outcome: string
+  origin?: string
+  duration_ms?: number
+  error?: string | null
+}
+
+export const getHistory = (limit = 200) => request<AuditRow[]>(`/api/history?limit=${limit}`)
+
 export const sendChat = (message: string) =>
   request<{ accepted: boolean }>('/api/chat', { method: 'POST', body: JSON.stringify({ message }) })
 

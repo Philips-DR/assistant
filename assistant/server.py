@@ -308,6 +308,22 @@ def create_app(
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
+    @app.get("/api/history")
+    async def audit_history(limit: int = 200) -> list[dict[str, Any]]:
+        """The durable record of every tool call, newest first -- the live event stream only
+        covers this run; this survives restarts."""
+        try:
+            lines = audit_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        rows: list[dict[str, Any]] = []
+        for line in reversed(lines[-max(1, min(limit, 2000)):]):
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue  # one corrupt line must not hide the rest
+        return rows
+
     @app.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
         page = WEB_DIST / "index.html"

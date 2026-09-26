@@ -120,9 +120,27 @@ def test_memory_is_framed_as_background_not_instruction(store):
 # Built-in tools
 # ---------------------------------------------------------------------------
 
-def test_both_memory_tools_pass_through_the_gate(store):
+def test_the_memory_tools_that_write_pass_through_the_gate(store):
     """You should see what the assistant writes down about you, as it decides to."""
-    assert all(tool.read_only is False for tool in memory_tools(store))
+    tools = {t.name: t for t in memory_tools(store)}
+    assert tools["remember"].read_only is False
+    assert tools["forget"].read_only is False
+    assert tools["recall"].read_only is True
+
+
+def test_the_model_sees_the_id_it_needs_to_forget_a_fact(store):
+    """forget takes an id. A prompt that showed facts without ids gave the model no valid
+    way to act on "forget that" -- only a guess."""
+    fact = store.add("preference", "tone", "keep it short")
+    assert f"[{fact.id}]" in store.as_prompt_block()
+
+
+def test_recall_lists_facts_with_their_ids(store):
+    fact = store.add("person", "Kwame", "colleague")
+    recall = next(t for t in memory_tools(store) if t.name == "recall")
+    listed = json.loads(recall.handler({}))["facts"]
+    assert listed == [{"id": fact.id, "kind": "person", "subject": "Kwame",
+                       "content": "colleague", "created": fact.created}]
 
 
 def test_remember_writes_a_fact(store):

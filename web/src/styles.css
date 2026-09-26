@@ -178,3 +178,18 @@ main { flex: 1; overflow: hidden; }
 .mail-message pre { font-family: inherit; font-size: 14px; max-height: 420px; overflow-y: auto; }
 .reply { border-top: 1px solid var(--line); padding-top: 14px; }
 .reply textarea { width: 100%; resize: vertical; }
+
+/* memory */
+select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.facts .fact { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.facts .fact p { margin: 2px 0 0; }
+
+/* history */
+.table-wrap { overflow-x: auto; }
+table.history { width: 100%; border-collapse: collapse; font-size: 13px; }
+.history th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); padding: 6px 8px; }
+.history td { border-bottom: 1px solid var(--line); padding: 6px 8px; }
+.history .num { text-align: right; font-variant-numeric: tabular-nums; }
+.outcome.ok { color: #3a9d5d; }
+.outcome.failed { color: var(--danger); }
+.outcome.declined { color: var(--warn); }

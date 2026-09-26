@@ -35,7 +35,9 @@ class Fact:
     created: str = field(default_factory=lambda: date.today().isoformat())
 
     def line(self) -> str:
-        return f"- ({self.kind}) {self.subject}: {self.content}"
+        # The id is shown because `forget` needs it. Without it the model could see a fact
+        # but had no valid way to remove one -- "forget that" left it nothing but a guess.
+        return f"- [{self.id}] ({self.kind}) {self.subject}: {self.content}"
 
 
 class MemoryStore:

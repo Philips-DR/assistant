@@ -223,3 +223,30 @@ def test_memory_written_mid_session_reaches_the_next_turn(tmp_path, monkeypatch)
     run(hub.run("first"))
     run(hub.run("second"))
     assert seen == ["old context", "context with the new fact"]
+
+
+def test_history_reads_the_audit_log_newest_first_and_skips_corrupt_lines(tmp_path):
+    (tmp_path / "audit.jsonl").write_text(
+        '{"tool": "a", "outcome": "ok"}\nnot json\n{"tool": "b", "outcome": "failed"}\n',
+        encoding="utf-8")
+
+    async def body(client):
+        return (await client.get("/api/history", headers=AUTH)).json()
+    rows = run(with_client(app_for(tmp_path), body))
+    assert [r["tool"] for r in rows] == ["b", "a"]
+
+
+def test_a_read_from_the_interface_is_not_audited_but_a_change_is(tmp_path):
+    """The panels poll every few seconds. Auditing each poll flooded the log -- found by
+    opening the History page and seeing nothing but "recording status: ok"."""
+    import json as _json
+
+    async def body(client):
+        await client.post("/api/actions", headers=AUTH, json={"tool": "assistant__recall"})
+        await client.post("/api/actions", headers=AUTH, json={
+            "tool": "assistant__remember",
+            "arguments": {"kind": "fact", "subject": "s", "content": "c"}})
+        return None
+    run(with_client(app_for(tmp_path), body))
+    rows = [_json.loads(l) for l in (tmp_path / "audit.jsonl").read_text().splitlines()]
+    assert [r["tool"] for r in rows] == ["assistant__remember"]
