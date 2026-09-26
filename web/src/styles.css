@@ -202,3 +202,5 @@ table.history { width: 100%; border-collapse: collapse; font-size: 13px; }
 .notice > div { flex: 1; }
 .notice-close { border: none; background: none; padding: 0 4px; font-size: 18px; line-height: 1; color: inherit; opacity: .6; }
 .notice-ask { align-self: flex-end; font-size: 13px; }
+
+.stale { display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 10px 16px; background: #d49a1a; color: #1f1f1c; font-weight: 600; }

@@ -25,6 +25,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...init.headers,
     },
   })
+  if (response.status === 401) {
+    // The server restarted and issued a new token; this tab still holds the old one and
+    // every call will now fail. Say so, rather than leaving the page quietly frozen.
+    window.dispatchEvent(new Event('assistant-stale'))
+  }
   if (!response.ok) {
     let detail = response.statusText
     try {

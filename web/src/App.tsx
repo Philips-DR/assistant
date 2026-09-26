@@ -59,8 +59,21 @@ export function App() {
     }
   }, [mode, section])
 
+  const [stale, setStale] = useState(false)
+  useEffect(() => {
+    const onStale = () => setStale(true)
+    window.addEventListener('assistant-stale', onStale)
+    return () => window.removeEventListener('assistant-stale', onStale)
+  }, [])
+
   return (
     <div className="app">
+      {stale && (
+        <div className="stale" role="alert">
+          The assistant was restarted, so this page has stopped updating.
+          <button className="primary" onClick={() => window.location.reload()}>Reload</button>
+        </div>
+      )}
       <header className="top">
         <h1>Assistant</h1>
 
