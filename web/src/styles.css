@@ -152,3 +152,5 @@ main { flex: 1; overflow: hidden; }
 .list-main { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .list .row { margin-top: 8px; }
 .activity ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+
+.result a { color: var(--accent); font-weight: 600; }

@@ -229,10 +229,18 @@ interface NotesResult {
   questions: number
 }
 
+interface BuiltDoc {
+  url: string
+  title: string
+  residue: string[]
+}
+
 function Notes() {
   const recordings = usePoll(() => call<Recordings>('meet_ai__list_recordings'), 15000)
   const [previews, setPreviews] = useState<Record<string, Preview>>({})
   const [results, setResults] = useState<Record<string, NotesResult>>({})
+  const [docs, setDocs] = useState<Record<string, BuiltDoc>>({})
+  const [building, setBuilding] = useState('')
   const [working, setWorking] = useState('')
   const [error, setError] = useState('')
 
@@ -262,6 +270,20 @@ function Notes() {
     }
   }
 
+  // docu-ai compiles the notes file on its own; meet-ai never learns it exists.
+  const makeDoc = async (notes: string) => {
+    setBuilding(notes)
+    setError('')
+    try {
+      const built = await call<BuiltDoc>('docu_ai__build', { path: notes })
+      setDocs((all) => ({ ...all, [notes]: built }))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBuilding('')
+    }
+  }
+
   return (
     <div className="card">
       <h2>Notes</h2>
@@ -271,6 +293,8 @@ function Notes() {
           const timeline = t.timeline ?? ''
           const p = previews[timeline]
           const r = results[timeline]
+          const notes = r?.markdown ?? t.notes ?? ''
+          const doc = notes ? docs[notes] : undefined
           return (
             <li key={timeline}>
               <div className="list-main">
@@ -284,11 +308,22 @@ function Notes() {
                   {r.dropped_claims > 0 && <span className="warn"> · {r.dropped_claims} dropped: quote not found in the transcript</span>}
                 </p>
               )}
+              {doc && (
+                <p className="result">
+                  <a href={doc.url} target="_blank" rel="noreferrer">Open “{doc.title}” in Google Docs</a>
+                  {doc.residue.length > 0 && <span className="warn"> · markdown residue: {doc.residue.join('; ')}</span>}
+                </p>
+              )}
               <div className="row">
                 <button onClick={() => void preview(timeline)}>Preview</button>
-                <button className="primary" disabled={working === timeline} onClick={() => void write(timeline)}>
-                  {working === timeline ? 'Writing notes…' : t.notes ? 'Write again' : 'Write notes'}
+                <button className={notes ? '' : 'primary'} disabled={working === timeline} onClick={() => void write(timeline)}>
+                  {working === timeline ? 'Writing notes…' : notes ? 'Write again' : 'Write notes'}
                 </button>
+                {notes && (
+                  <button className="primary" disabled={building === notes} onClick={() => void makeDoc(notes)}>
+                    {building === notes ? 'Building the Doc…' : 'Make a Google Doc'}
+                  </button>
+                )}
               </div>
             </li>
           )
