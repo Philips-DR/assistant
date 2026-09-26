@@ -204,3 +204,6 @@ table.history { width: 100%; border-collapse: collapse; font-size: 13px; }
 .notice-ask { align-self: flex-end; font-size: 13px; }
 
 .stale { display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 10px 16px; background: #d49a1a; color: #1f1f1c; font-weight: 600; }
+
+.output { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.output-label { min-width: 72px; font-weight: 600; }

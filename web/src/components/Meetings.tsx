@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import { runAction } from '../api'
+import { useAppState } from '../state'
 import { clock, fileName, usePoll } from '../usePoll'
 
 interface Session {
@@ -30,7 +31,7 @@ interface Job {
 
 interface Recordings {
   audio: string[]
-  transcripts: { markdown: string; timeline: string | null; notes: string | null }[]
+  transcripts: { markdown: string; timeline: string | null; notes: string | null; minutes?: string | null }[]
 }
 
 async function call<T>(tool: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -220,13 +221,15 @@ function Transcriber({ audio, setAudio }: { audio: string; setAudio: (a: string)
 }
 
 interface Preview { segments: number; words: number; approx_tokens: number }
-interface NotesResult {
+
+// Notes and minutes are two outputs of one transcript, made the same way: a model writes,
+// every point is checked against the transcript, and docu-ai compiles the file on its own
+// -- meet-ai never learns docu-ai exists.
+interface Written {
   markdown: string
   verified_claims: number
   dropped_claims: number
-  decisions: number
-  actions: number
-  questions: number
+  summary: string
 }
 
 interface BuiltDoc {
@@ -235,102 +238,122 @@ interface BuiltDoc {
   residue: string[]
 }
 
+type Kind = 'notes' | 'minutes'
+
+const KINDS: { kind: Kind; label: string; tool: string; working: string }[] = [
+  { kind: 'notes', label: 'Notes', tool: 'meet_ai__generate_notes', working: 'Writing notes…' },
+  { kind: 'minutes', label: 'Minutes', tool: 'meet_ai__generate_minutes', working: 'Writing minutes…' },
+]
+
+function describe(kind: Kind, output: Record<string, unknown>): string {
+  if (kind === 'minutes') {
+    const items = (output.items as string[] | undefined) ?? []
+    return `“${String(output.title)}” — ${items.length} agenda items, ${String(output.verified_claims)} verified points`
+  }
+  return `${String(output.verified_claims)} verified claims — ${String(output.decisions)} decisions, ${String(output.actions)} actions, ${String(output.questions)} questions`
+}
+
 function Notes() {
   const recordings = usePoll(() => call<Recordings>('meet_ai__list_recordings'), 15000)
   const [previews, setPreviews] = useState<Record<string, Preview>>({})
-  const [results, setResults] = useState<Record<string, NotesResult>>({})
+  const [results, setResults] = useState<Record<string, Written & Record<string, unknown>>>({})
   const [docs, setDocs] = useState<Record<string, BuiltDoc>>({})
-  const [building, setBuilding] = useState('')
-  const [working, setWorking] = useState('')
+  const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const tools = useAppState().tools
 
   const ready = recordings.data?.transcripts.filter((t) => t.timeline) ?? []
+  const kinds = KINDS.filter((k) => tools.has(k.tool))
 
-  const preview = async (timeline: string) => {
+  const run = async (key: string, work: () => Promise<void>) => {
+    setBusy(key)
     setError('')
     try {
+      await work()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const preview = (timeline: string) =>
+    run(`preview:${timeline}`, async () => {
       const p = await call<Preview>('meet_ai__preview_notes', { timeline })
       setPreviews((all) => ({ ...all, [timeline]: p }))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
+    })
 
-  const write = async (timeline: string) => {
-    setWorking(timeline)
-    setError('')
-    try {
-      const r = await call<NotesResult>('meet_ai__generate_notes', { timeline })
-      setResults((all) => ({ ...all, [timeline]: r }))
+  const write = (kind: (typeof KINDS)[number], timeline: string) =>
+    run(`${kind.kind}:${timeline}`, async () => {
+      const r = await call<Written & Record<string, unknown>>(kind.tool, { timeline })
+      setResults((all) => ({ ...all, [`${kind.kind}:${timeline}`]: r }))
       await recordings.reload()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setWorking('')
-    }
-  }
+    })
 
-  // docu-ai compiles the notes file on its own; meet-ai never learns it exists.
-  const makeDoc = async (notes: string) => {
-    setBuilding(notes)
-    setError('')
-    try {
-      const built = await call<BuiltDoc>('docu_ai__build', { path: notes })
-      setDocs((all) => ({ ...all, [notes]: built }))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBuilding('')
-    }
-  }
+  const makeDoc = (path: string) =>
+    run(`doc:${path}`, async () => {
+      const built = await call<BuiltDoc>('docu_ai__build', { path })
+      setDocs((all) => ({ ...all, [path]: built }))
+    })
 
   return (
     <div className="card">
-      <h2>Notes</h2>
+      <h2>Notes and minutes</h2>
       {ready.length === 0 && <p className="muted">No transcripts with a timeline yet. Transcribe a recording first.</p>}
       <ul className="list">
         {ready.map((t) => {
           const timeline = t.timeline ?? ''
           const p = previews[timeline]
-          const r = results[timeline]
-          const notes = r?.markdown ?? t.notes ?? ''
-          const doc = notes ? docs[notes] : undefined
           return (
             <li key={timeline}>
               <div className="list-main">
                 <strong>{fileName(t.markdown)}</strong>
-                {t.notes && !r && <span className="badge done">notes written</span>}
+                <button disabled={busy === `preview:${timeline}`} onClick={() => void preview(timeline)}>Preview</button>
               </div>
               {p && <p className="muted">{p.words.toLocaleString()} words · about {p.approx_tokens.toLocaleString()} tokens to send</p>}
-              {r && (
-                <p className="result">
-                  {r.verified_claims} verified claims — {r.decisions} decisions, {r.actions} actions, {r.questions} questions
-                  {r.dropped_claims > 0 && <span className="warn"> · {r.dropped_claims} dropped: quote not found in the transcript</span>}
-                </p>
-              )}
-              {doc && (
-                <p className="result">
-                  <a href={doc.url} target="_blank" rel="noreferrer">Open “{doc.title}” in Google Docs</a>
-                  {doc.residue.length > 0 && <span className="warn"> · markdown residue: {doc.residue.join('; ')}</span>}
-                </p>
-              )}
-              <div className="row">
-                <button onClick={() => void preview(timeline)}>Preview</button>
-                <button className={notes ? '' : 'primary'} disabled={working === timeline} onClick={() => void write(timeline)}>
-                  {working === timeline ? 'Writing notes…' : notes ? 'Write again' : 'Write notes'}
-                </button>
-                {notes && (
-                  <button className="primary" disabled={building === notes} onClick={() => void makeDoc(notes)}>
-                    {building === notes ? 'Building the Doc…' : 'Make a Google Doc'}
-                  </button>
-                )}
-              </div>
+              {kinds.map((k) => {
+                const key = `${k.kind}:${timeline}`
+                const r = results[key]
+                const path = r?.markdown ?? (k.kind === 'notes' ? t.notes : t.minutes) ?? ''
+                const doc = path ? docs[path] : undefined
+                return (
+                  <div key={k.kind} className="output">
+                    <div className="row">
+                      <span className="output-label">{k.label}</span>
+                      <button className={path ? '' : 'primary'} disabled={busy !== ''} onClick={() => void write(k, timeline)}>
+                        {busy === key ? k.working : path ? 'Write again' : `Write ${k.kind}`}
+                      </button>
+                      {path && (
+                        <button className="primary" disabled={busy !== ''} onClick={() => void makeDoc(path)}>
+                          {busy === `doc:${path}` ? 'Building the Doc…' : 'Make a Google Doc'}
+                        </button>
+                      )}
+                      {path && !r && <span className="badge done">written</span>}
+                    </div>
+                    {r && (
+                      <p className="result">
+                        {describe(k.kind, r)}
+                        {r.dropped_claims > 0 && <span className="warn"> · {r.dropped_claims} dropped: quote not found in the transcript</span>}
+                      </p>
+                    )}
+                    {doc && (
+                      <p className="result">
+                        <a href={doc.url} target="_blank" rel="noreferrer">Open “{doc.title}” in Google Docs</a>
+                        {doc.residue.length > 0 && <span className="warn"> · markdown residue: {doc.residue.join('; ')}</span>}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
             </li>
           )
         })}
       </ul>
       {(error || recordings.error) && <p className="error">{error || recordings.error}</p>}
-      <p className="hint">Every claim carries a quote found word-for-word in the transcript; anything that can't be found is dropped.</p>
+      <p className="hint">
+        Every point carries a quote found word-for-word in the transcript; anything that can't be found is dropped.
+        Minutes leave attendance for the secretary — a recording can't show who was present.
+      </p>
     </div>
   )
 }
