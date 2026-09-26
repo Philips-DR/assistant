@@ -7,11 +7,8 @@ import { useAppState } from '../state'
 const SHOW_FOR_MS = 20_000
 
 export function Notices() {
-  const { events } = useAppState()
+  const { events, openedAt } = useAppState()
   const [dismissed, setDismissed] = useState<Set<number>>(new Set())
-  // Notices already in the first snapshot happened before this page opened: list them in
-  // Activity, but don't pop them up again on every reload.
-  const firstSeen = useRef<number | null>(null)
   const announced = useRef<Set<number>>(new Set())
   const [now, setNow] = useState(() => Date.now())
 
@@ -20,11 +17,9 @@ export function Notices() {
     return () => clearInterval(timer)
   }, [])
 
-  if (firstSeen.current === null && events.length > 0) {
-    firstSeen.current = Math.max(...events.map((e) => e.seq))
-  }
-  const baseline = firstSeen.current ?? 0
-  const fresh = events.filter((e) => e.type === 'notice' && e.seq > baseline)
+  // Notices from before this page opened are listed in Activity, not popped up again on
+  // every reload. Until the first snapshot arrives nothing counts as fresh.
+  const fresh = openedAt === null ? [] : events.filter((e) => e.type === 'notice' && e.seq > openedAt)
 
   useEffect(() => {
     for (const e of fresh) {

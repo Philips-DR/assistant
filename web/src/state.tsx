@@ -11,6 +11,9 @@ interface State {
   connected: boolean
   model: string
   tools: Set<string>
+  /** Highest event seq in the first snapshot, or null before it arrives. Events at or below
+   * it happened before this page opened. */
+  openedAt: number | null
 }
 
 type Action =
@@ -19,12 +22,21 @@ type Action =
   | { type: 'connected'; value: boolean }
   | { type: 'tools'; names: string[] }
 
-const initial: State = { events: [], pending: [], busy: false, connected: false, model: '', tools: new Set() }
+const initial: State = { events: [], pending: [], busy: false, connected: false, model: '', tools: new Set(), openedAt: null }
 
 function reduce(state: State, action: Action): State {
   switch (action.type) {
     case 'snapshot':
-      return { ...state, events: action.events, pending: action.pending, busy: action.busy, model: action.model }
+      return {
+        ...state,
+        events: action.events,
+        pending: action.pending,
+        busy: action.busy,
+        model: action.model,
+        // Only the first snapshot sets it; a reconnect's snapshot must not swallow notices
+        // that arrived while this page was open.
+        openedAt: state.openedAt ?? Math.max(0, ...action.events.map((e) => e.seq)),
+      }
     case 'connected':
       return { ...state, connected: action.value }
     case 'tools':
