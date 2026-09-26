@@ -154,3 +154,27 @@ main { flex: 1; overflow: hidden; }
 .activity ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
 
 .result a { color: var(--accent); font-weight: 600; }
+
+/* sections within buttons mode */
+.sections { display: flex; gap: 4px; max-width: 1100px; margin: 0 auto 14px; }
+.sections button { border: none; background: transparent; color: var(--muted); padding: 6px 12px; border-radius: 7px; }
+.sections button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow); }
+
+/* mail */
+.mail-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.mail-bar h2 { margin: 0; }
+.mail-bar button { margin-left: auto; }
+.mail { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .mail { grid-template-columns: 1fr; } }
+.mail-list { list-style: none; margin: 0; padding: 6px; max-height: 70vh; overflow-y: auto; }
+.mail-item { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; border: none; background: transparent; padding: 9px 10px; border-radius: 8px; gap: 1px; }
+.mail-item:hover { background: var(--surface-2); }
+.mail-item.on { background: var(--surface-2); }
+.mail-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.mail-when { font-size: 12px; }
+.mail-thread h3 { margin: 0 0 12px; font-size: 17px; }
+.mail-message { border-top: 1px solid var(--line); padding: 12px 0; }
+.mail-message header { margin-bottom: 8px; font-size: 14px; }
+.mail-message pre { font-family: inherit; font-size: 14px; max-height: 420px; overflow-y: auto; }
+.reply { border-top: 1px solid var(--line); padding-top: 14px; }
+.reply textarea { width: 100%; resize: vertical; }

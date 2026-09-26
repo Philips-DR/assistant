@@ -3,13 +3,15 @@ import { useAppState } from './state'
 import { ApprovalCard } from './components/ApprovalCard'
 import { Activity } from './components/Activity'
 import { Chat } from './components/Chat'
+import { Mail } from './components/Mail'
 import { Meetings } from './components/Meetings'
 
 type Mode = 'chat' | 'buttons'
+type Section = 'meetings' | 'mail'
 
 function savedMode(): Mode {
   // The URL wins, so a view can be bookmarked or linked; then the last mode used.
-  if (location.hash === '#buttons') return 'buttons'
+  if (location.hash.startsWith('#buttons')) return 'buttons'
   if (location.hash === '#chat') return 'chat'
   try {
     return localStorage.getItem('assistant-mode') === 'buttons' ? 'buttons' : 'chat'
@@ -21,15 +23,16 @@ function savedMode(): Mode {
 export function App() {
   const { pending, busy, connected, model } = useAppState()
   const [mode, setMode] = useState<Mode>(savedMode)
+  const [section, setSection] = useState<Section>(location.hash === '#buttons/mail' ? 'mail' : 'meetings')
 
   useEffect(() => {
-    history.replaceState(null, '', `#${mode}`)
+    history.replaceState(null, '', mode === 'buttons' && section === 'mail' ? '#buttons/mail' : `#${mode}`)
     try {
       localStorage.setItem('assistant-mode', mode)
     } catch {
       // private window or blocked storage: the mode just won't be remembered
     }
-  }, [mode])
+  }, [mode, section])
 
   return (
     <div className="app">
@@ -66,8 +69,12 @@ export function App() {
               </div>
             )}
             {busy && pending.length === 0 && <p className="muted working-note">The assistant is working on a chat message.</p>}
+            <nav className="sections" aria-label="Section">
+              <button className={section === 'meetings' ? 'on' : ''} onClick={() => setSection('meetings')}>Meetings</button>
+              <button className={section === 'mail' ? 'on' : ''} onClick={() => setSection('mail')}>Mail</button>
+            </nav>
             <div className="buttons-grid">
-              <Meetings />
+              {section === 'meetings' ? <Meetings /> : <Mail />}
               <Activity />
             </div>
           </div>

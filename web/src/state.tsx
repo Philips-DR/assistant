@@ -2,7 +2,7 @@
 // recording stopped with a button be the one the model writes up in chat.
 
 import { createContext, useCallback, useContext, useEffect, useReducer, type ReactNode } from 'react'
-import { getState, openEvents, type Approval, type AssistantEvent } from './api'
+import { getState, getTools, openEvents, type Approval, type AssistantEvent } from './api'
 
 interface State {
   events: AssistantEvent[]
@@ -10,14 +10,16 @@ interface State {
   busy: boolean
   connected: boolean
   model: string
+  tools: Set<string>
 }
 
 type Action =
   | { type: 'snapshot'; events: AssistantEvent[]; pending: Approval[]; busy: boolean; model: string }
   | { type: 'event'; event: AssistantEvent }
   | { type: 'connected'; value: boolean }
+  | { type: 'tools'; names: string[] }
 
-const initial: State = { events: [], pending: [], busy: false, connected: false, model: '' }
+const initial: State = { events: [], pending: [], busy: false, connected: false, model: '', tools: new Set() }
 
 function reduce(state: State, action: Action): State {
   switch (action.type) {
@@ -25,6 +27,8 @@ function reduce(state: State, action: Action): State {
       return { ...state, events: action.events, pending: action.pending, busy: action.busy, model: action.model }
     case 'connected':
       return { ...state, connected: action.value }
+    case 'tools':
+      return { ...state, tools: new Set(action.names) }
     case 'event': {
       const event = action.event
       // A reconnect replays from a fresh snapshot; drop anything already held.
@@ -72,7 +76,10 @@ export function StateProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reduce, initial)
 
   const refresh = useCallback(async () => {
-    const snapshot = await getState()
+    const [snapshot, tools] = await Promise.all([getState(), getTools()])
+    // Views adapt to what the server actually offers -- mail drafting, for instance, only
+    // exists when it has been switched on for mail-ai.
+    dispatch({ type: 'tools', names: tools.map((t) => t.qualified_name) })
     dispatch({
       type: 'snapshot',
       events: snapshot.history,

@@ -93,7 +93,17 @@ export interface ActionResult<T = unknown> {
   preview?: string | null
 }
 
+export interface ToolInfo {
+  qualified_name: string
+  server: string
+  name: string
+  read_only: boolean
+  has_preview: boolean
+}
+
 export const getState = () => request<ServerState>('/api/state')
+
+export const getTools = () => request<ToolInfo[]>('/api/tools')
 
 export const sendChat = (message: string) =>
   request<{ accepted: boolean }>('/api/chat', { method: 'POST', body: JSON.stringify({ message }) })
