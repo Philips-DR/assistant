@@ -23,6 +23,7 @@ def app_for(tmp_path, **kwargs):
         tmp_path / "tools.yaml", tmp_path / "memory.json", tmp_path / "audit.jsonl",
         token=TOKEN,
         registry_factory=lambda local: ToolRegistry([], local=local),
+        watch_jobs=False,
         **kwargs,
     )
 

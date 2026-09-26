@@ -193,3 +193,12 @@ table.history { width: 100%; border-collapse: collapse; font-size: 13px; }
 .outcome.ok { color: #3a9d5d; }
 .outcome.failed { color: var(--danger); }
 .outcome.declined { color: var(--warn); }
+
+.notices { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; max-width: min(380px, calc(100vw - 32px)); z-index: 20; }
+.notice { display: flex; gap: 12px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid #2e9e5b; border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); }
+.notice.warning { border-left-color: #d49a1a; }
+.notice.error { border-left-color: #c9423a; }
+.notice p { margin: 4px 0 0; }
+.notice > div { flex: 1; }
+.notice-close { border: none; background: none; padding: 0 4px; font-size: 18px; line-height: 1; color: inherit; opacity: .6; }
+.notice-ask { align-self: flex-end; font-size: 13px; }

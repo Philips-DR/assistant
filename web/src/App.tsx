@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAppState } from './state'
 import { ApprovalCard } from './components/ApprovalCard'
 import { Activity } from './components/Activity'
+import { Notices } from './components/Notices'
 import { Chat } from './components/Chat'
 import { History } from './components/History'
 import { Mail } from './components/Mail'
@@ -110,6 +111,7 @@ export function App() {
           </div>
         )}
       </main>
+      <Notices />
     </div>
   )
 }

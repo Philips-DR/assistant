@@ -47,6 +47,7 @@ export type EventType =
   | 'approval_resolved'
   | 'turn_done'
   | 'turn_error'
+  | 'notice'
 
 export interface AssistantEvent {
   seq: number
@@ -66,6 +67,9 @@ export interface AssistantEvent {
   preview?: string | null
   preview_expected?: boolean
   read_only?: boolean
+  level?: 'success' | 'warning' | 'error'
+  title?: string
+  body?: string
 }
 
 export interface Approval {

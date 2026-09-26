@@ -38,6 +38,7 @@ from assistant.config import load_tool_servers, model_config_from_environment
 from assistant.session import ApprovalRequest, allow_gate, execute, run_turn
 from assistant.setup import prepare
 from assistant.tools import RemoteTool, ToolRegistry
+from assistant.watchers import watch
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIST = ROOT / "web" / "dist"
@@ -168,6 +169,7 @@ def create_app(
     model: str | None = None,
     token: str | None = None,
     registry_factory: Callable[[list[Any]], ToolRegistry] | None = None,
+    watch_jobs: bool = True,
 ) -> FastAPI:
     token = token or secrets.token_urlsafe(24)
     holder: dict[str, Hub] = {}
@@ -184,9 +186,13 @@ def create_app(
         holder["hub"] = Hub(registry, config, context, audit_path,
                             refresh_context=lambda: prepare(memory_path)[2])
         app.state.hub = holder["hub"]
+        # Tells the browser when a long job finishes, so nobody has to keep asking.
+        watcher = asyncio.create_task(watch(registry, holder["hub"].emit)) if watch_jobs else None
         try:
             yield
         finally:
+            if watcher is not None:
+                watcher.cancel()
             await registry.__aexit__(None, None, None)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
