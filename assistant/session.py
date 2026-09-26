@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from assistant.approval import Asker, approve, needs_approval
 from assistant.audit import record
 from assistant.config import ANTHROPIC, ModelConfig
-from assistant.tools import ToolRegistry
+from assistant.tools import RemoteTool, ToolRegistry
 
 MAX_TOKENS = 16000
 
@@ -79,6 +81,101 @@ def _text_of(content: list[Any]) -> str:
     return "\n".join(b.text for b in content if getattr(b, "type", None) == "text").strip()
 
 
+@dataclass(frozen=True)
+class ApprovalRequest:
+    """One call waiting on a person. The same object whether that person is at a terminal
+    or looking at a card in a browser -- the gate is what differs, not the question."""
+
+    tool: RemoteTool
+    arguments: dict[str, Any]
+    preview: str | None
+    preview_expected: bool
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+
+
+# Async so a web server can suspend a turn on a click. A terminal answers the same question
+# synchronously with input(); both satisfy this signature.
+Gate = Callable[[ApprovalRequest], Awaitable[bool]]
+EventSink = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+async def _discard(_event: dict[str, Any]) -> None:
+    return None
+
+
+def terminal_gate(ask: Asker = input) -> Gate:
+    async def gate(request: ApprovalRequest) -> bool:
+        return approve(request.tool, request.arguments, ask, preview=request.preview,
+                       preview_expected=request.preview_expected)
+    return gate
+
+
+async def allow_gate(_request: ApprovalRequest) -> bool:
+    """For a button press: the click was the approval."""
+    return True
+
+
+async def execute(
+    registry: ToolRegistry,
+    tool: RemoteTool,
+    arguments: dict[str, Any],
+    audit_path: Path,
+    gate: Gate,
+    emit: EventSink = _discard,
+    origin: str = "chat",
+) -> tuple[str, str]:
+    """Preview, gate, call, audit -- for one tool call. Returns (output, outcome).
+
+    The single path every call takes, whether a model asked for it or a person pressed a
+    button. Two paths would drift: the button one would quietly lose the audit row, or the
+    preview, the first time someone changed only the other.
+    """
+    preview = None
+    if needs_approval(tool) and tool.preview is not None:
+        try:
+            # Fetched before asking, not after: the preview is the thing being approved.
+            preview = await registry.preview_of(tool, arguments)
+        except Exception:
+            preview = None  # reported at the gate, never swallowed
+
+    if needs_approval(tool):
+        request = ApprovalRequest(tool=tool, arguments=arguments, preview=preview,
+                                  preview_expected=tool.preview is not None)
+        if not await gate(request):
+            record(audit_path, tool=tool.qualified_name, arguments=arguments,
+                   outcome="declined", origin=origin)
+            await emit({"type": "tool_finished", "tool": tool.qualified_name,
+                        "outcome": "declined", "origin": origin})
+            return "The user declined to run this. Do not attempt it another way.", "declined"
+
+    await emit({"type": "tool_started", "tool": tool.qualified_name,
+                "arguments": arguments, "origin": origin})
+    started = time.monotonic()
+    try:
+        result = await registry.call(tool, arguments)
+        output = result.text
+        # A tool that reports its own failure is a failure, even though the call itself
+        # returned normally.
+        outcome = "failed" if result.is_error else "ok"
+        error = result.text if result.is_error else None
+    except Exception as exc:  # the transport dying must not end the conversation
+        output, outcome, error = f"tool failed: {exc}", "failed", str(exc)
+
+    record(
+        audit_path,
+        tool=tool.qualified_name,
+        arguments=arguments,
+        outcome=outcome,
+        error=error,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        result=output,
+        origin=origin,
+    )
+    await emit({"type": "tool_finished", "tool": tool.qualified_name, "outcome": outcome,
+                "result": output[:2000], "origin": origin})
+    return output, outcome
+
+
 async def run_turn(
     registry: ToolRegistry,
     config: ModelConfig,
@@ -86,8 +183,15 @@ async def run_turn(
     audit_path: Path,
     ask: Asker = input,
     context: str = "",
+    gate: Gate | None = None,
+    emit: EventSink = _discard,
 ) -> str:
-    """One user request, through as many tool calls as it takes. Mutates `messages`."""
+    """One user request, through as many tool calls as it takes. Mutates `messages`.
+
+    `gate` decides approvals; without one, a terminal prompt built from `ask` does. `emit`
+    receives each step as it happens, which is how a browser watches a turn unfold.
+    """
+    gate = gate or terminal_gate(ask)
     client = build_client(config)
     tools = registry.anthropic_tools()
 
@@ -107,8 +211,13 @@ async def run_turn(
         # travel back unchanged or the next turn loses the model's own reasoning.
         messages.append({"role": "assistant", "content": response.content})
 
+        text = _text_of(response.content)
+        if text:
+            await emit({"type": "assistant_text", "text": text})
+
         if response.stop_reason != "tool_use":
-            return _text_of(response.content)
+            await emit({"type": "turn_done", "text": text})
+            return text
 
         results: list[dict[str, Any]] = []
         for block in response.content:
@@ -125,47 +234,8 @@ async def run_turn(
                 })
                 continue
 
-            arguments = dict(block.input or {})
-
-            # Fetched before asking, not after: the preview is the thing being approved.
-            preview = None
-            if needs_approval(tool) and tool.preview is not None:
-                try:
-                    preview = await registry.preview_of(tool, arguments)
-                except Exception:
-                    preview = None  # reported at the prompt, never swallowed
-
-            if needs_approval(tool) and not approve(
-                tool, arguments, ask, preview=preview, preview_expected=tool.preview is not None
-            ):
-                record(audit_path, tool=tool.qualified_name, arguments=arguments,
-                       outcome="declined")
-                results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": "The user declined to run this. Do not attempt it another way.",
-                })
-                continue
-
-            started = time.monotonic()
-            try:
-                result = await registry.call(tool, arguments)
-                output = result.text
-                # A tool that reports its own failure is a failure, even though the call
-                # itself returned normally.
-                outcome = "failed" if result.is_error else "ok"
-                error = result.text if result.is_error else None
-            except Exception as exc:  # the transport dying must not end the conversation
-                output, outcome, error = f"tool failed: {exc}", "failed", str(exc)
-
-            record(
-                audit_path,
-                tool=tool.qualified_name,
-                arguments=arguments,
-                outcome=outcome,
-                error=error,
-                duration_ms=int((time.monotonic() - started) * 1000),
-                result=output,
+            output, outcome = await execute(
+                registry, tool, dict(block.input or {}), audit_path, gate, emit
             )
             results.append({
                 "type": "tool_result",
@@ -178,4 +248,6 @@ async def run_turn(
         # making parallel calls.
         messages.append({"role": "user", "content": results})
 
-    return "I stopped after too many tool calls without reaching an answer."
+    final = "I stopped after too many tool calls without reaching an answer."
+    await emit({"type": "turn_done", "text": final})
+    return final

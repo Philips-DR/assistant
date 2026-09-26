@@ -13,6 +13,26 @@ MCP door, where it is tested and cannot drift.
 ./assistant-cli                             # chat loop
 ```
 
+## In a browser
+
+```bash
+./assistant-web                             # http://127.0.0.1:8750/
+```
+
+One long-running process: the tools are launched once and held open, and a browser talks to
+it. Chat and buttons are two views of **one** system — anything you change with a button is
+handed to the model with your next message, and anything the model does streams to every open
+view as it happens.
+
+The chat gate works the same here as in the terminal, except that a turn *suspends* on an
+approval card instead of blocking on a prompt, and resumes when you answer it.
+
+**It binds to 127.0.0.1 only, and every API request needs a token issued at launch** and
+injected into the page. Localhost alone is not enough: any site open in another tab can make
+your browser send a request to localhost, and this process can send email as you. The token
+is what that site cannot know. Requests whose `Host` is not localhost are refused too, which
+closes DNS rebinding.
+
 ## How it reaches the tools
 
 Every tool is a child process speaking MCP over stdio. None is a network service, none has

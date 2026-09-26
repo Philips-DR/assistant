@@ -66,6 +66,25 @@ to find once — an `AttributeError` from the rename above, presenting as a hang
   failed build as `ok` is worse than no audit log.
 - The audit log never raises. A broken log must not break the work.
 
+## The web server
+
+- **Chat and buttons are one state.** A button that changes something becomes a note handed
+  to the model with the next message; a model's action streams to every view. Two apps that
+  happen to share a backend would let "stop the recording" and "write it up" refer to
+  different things.
+- **Notes are held until a turn boundary.** Appended mid-turn, a note would sit between a
+  tool call and its result, and the model's API rejects that shape.
+- **Every call takes `session.execute`,** chat or button. Two paths would drift — the button
+  one would quietly lose its audit row or its preview the first time only the other changed.
+- **A failed turn rolls the conversation back** to before it, keeping the button notes. A
+  turn that dies mid-way can leave a tool call without its result, which poisons every
+  later turn.
+- **Status polls from buttons are not noted.** Only calls that change something are; a poll
+  every few seconds would bury the model's context.
+- **Security:** 127.0.0.1 only, never 0.0.0.0; a per-launch token on every `/api` request;
+  Host must be localhost. The token may appear in a URL only for `/api/events`, because
+  EventSource cannot send headers.
+
 ## Approval previews
 
 - **A tool may declare, in `_meta`, the read-only tool that renders its effect.** The gate

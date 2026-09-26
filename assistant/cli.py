@@ -9,9 +9,8 @@ import os
 import sys
 from pathlib import Path
 
-from assistant.builtins import memory_tools
 from assistant.config import PROVIDERS, load_tool_servers, model_config_from_environment
-from assistant.memory import MemoryStore
+from assistant.setup import prepare
 from assistant.session import run_turn
 from assistant.tools import ToolRegistry
 
@@ -59,20 +58,7 @@ async def _run(args: argparse.Namespace) -> int:
     config = model_config_from_environment(args.provider, args.model)
     audit_path = Path(args.audit)
 
-    store = None if args.no_memory else MemoryStore(Path(args.memory))
-    local_tools = memory_tools(store) if store else []
-    context = store.as_prompt_block() if store else ""
-
-    # The lexicon is derived state, rebuilt from memory every session and handed to tools
-    # by path. Materialising it here rather than exposing a tool for it means no gate
-    # question mid-chain, and means meet-ai still never knows a memory store exists.
-    if store:
-        lexicon_path = store.write_lexicon(Path(args.memory).with_name("lexicon.json"))
-        if lexicon_path:
-            context += (
-                f"\n\nA lexicon of correct spellings is at {lexicon_path}. Pass it as the "
-                f"`lexicon` argument to any tool that accepts one."
-            )
+    store, local_tools, context = prepare(Path(args.memory), use_memory=not args.no_memory)
 
     async with ToolRegistry(servers, local=local_tools) as registry:
         if args.list:
