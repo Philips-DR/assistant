@@ -16,8 +16,15 @@ MCP door, where it is tested and cannot drift.
 ## In a browser
 
 ```bash
+cd web && npm install && npm run build      # once, and after changing the interface
 ./assistant-web                             # http://127.0.0.1:8750/
 ```
+
+**Chat** and **Buttons** are a toggle at the top. Buttons mode is a Meetings panel today —
+record, transcribe with live progress, write notes — calling the same tools the model calls,
+with no model involved. An approval the model is waiting on follows you between modes: inline
+in chat, a banner in buttons mode, and a badge on the Chat tab. The URL carries the mode
+(`#chat`, `#buttons`), so either view can be bookmarked.
 
 One long-running process: the tools are launched once and held open, and a browser talks to
 it. Chat and buttons are two views of **one** system — anything you change with a button is

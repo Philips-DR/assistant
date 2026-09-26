@@ -71,10 +71,14 @@ def parsed(output: str) -> Any:
 class Hub:
     """Everything the browser and the model share."""
 
-    def __init__(self, registry: ToolRegistry, config: Any, context: str, audit_path: Path) -> None:
+    def __init__(self, registry: ToolRegistry, config: Any, context: str, audit_path: Path,
+                 refresh_context: Callable[[], str] | None = None) -> None:
         self.registry = registry
         self.config = config
         self.context = context
+        # A server runs for days. Memory written mid-session -- a fact remembered, a spelling
+        # corrected -- must reach the model on the next turn, not after a restart.
+        self.refresh_context = refresh_context
         self.audit_path = audit_path
         self.messages: list[dict[str, Any]] = []
         self.notes: list[str] = []
@@ -122,6 +126,8 @@ class Hub:
         checkpoint = len(self.messages)
         held = list(self.notes)
         await self.emit({"type": "user_message", "text": message})
+        if self.refresh_context is not None:
+            self.context = self.refresh_context()
         self.messages.append({"role": "user", "content": self.compose(message)})
         try:
             await run_turn(self.registry, self.config, self.messages, self.audit_path,
@@ -175,7 +181,8 @@ def create_app(
         # Held open for the life of the server: the tools stay running instead of being
         # relaunched for every request.
         await registry.__aenter__()
-        holder["hub"] = Hub(registry, config, context, audit_path)
+        holder["hub"] = Hub(registry, config, context, audit_path,
+                            refresh_context=lambda: prepare(memory_path)[2])
         app.state.hub = holder["hub"]
         try:
             yield
@@ -282,6 +289,10 @@ def create_app(
         h.subscribers.add(queue)
 
         async def stream():
+            # Sent at once, before any event exists. A browser only fires EventSource.onopen
+            # when the first bytes arrive, so without this every page load reported
+            # "reconnecting" -- and kept the message box disabled -- for up to 15 seconds.
+            yield ": connected\n\n"
             try:
                 while True:
                     if await request.is_disconnected():
@@ -335,7 +346,13 @@ def main() -> None:
                      token=os.environ.get("ASSISTANT_TOKEN") or None)
     print(f"assistant on http://127.0.0.1:{args.port}/  (localhost only)")
     # Never 0.0.0.0. This process can send email as you.
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    #
+    # timeout_graceful_shutdown is not optional. uvicorn waits for open connections to drain
+    # before stopping, and the event stream never drains on its own -- so any browser tab left
+    # open blocked shutdown forever, and the three tool processes with it. Found by trying to
+    # restart the server with a stream still connected.
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning",
+                timeout_graceful_shutdown=3)
 
 
 if __name__ == "__main__":

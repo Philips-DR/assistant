@@ -172,7 +172,7 @@ async def execute(
         origin=origin,
     )
     await emit({"type": "tool_finished", "tool": tool.qualified_name, "outcome": outcome,
-                "result": output[:2000], "origin": origin})
+                "result": output[:2000], "origin": origin, "read_only": tool.read_only})
     return output, outcome
 
 

@@ -85,6 +85,31 @@ to find once — an `AttributeError` from the rename above, presenting as a hang
   Host must be localhost. The token may appear in a URL only for `/api/events`, because
   EventSource cannot send headers.
 
+## The interface (`web/`)
+
+Vite + React + strict TypeScript, built to `web/dist` and served by the same process. One
+state for both modes (`state.tsx`), fed by one event stream; the modes are views, never
+separate stores. Assistant replies render as Markdown through react-markdown, which does not
+render raw HTML — and approval previews are rendered as text, never markup, because they are
+email bodies and transcripts someone else wrote.
+
+Four things that only showed up by running it:
+
+- **The event stream must send bytes the moment it opens.** EventSource fires `onopen` only
+  when the first bytes arrive, and the server sent nothing until the first event or the
+  15-second keepalive — so every page load showed "reconnecting" and disabled the message box
+  for up to 15 s. An immediate `: connected` comment brought first byte to 6 ms.
+- **uvicorn needs `timeout_graceful_shutdown`.** It waits for open connections to drain before
+  stopping, and an event stream never drains — any open browser tab blocked shutdown forever,
+  holding the three tool processes with it.
+- **Memory is re-read every turn.** The server runs for days; a fact remembered mid-session
+  must reach the next turn, not the next restart.
+- **Headless Chrome cannot screenshot this page with `--virtual-time-budget` or `--timeout`.**
+  The first waits for network idle, which an event stream never reaches; the second works by
+  stopping all network activity, which kills the stream and makes the page report
+  "reconnecting" — corrupting exactly what it is measuring. Drive a real browser session
+  (Puppeteer against the installed Chrome) instead.
+
 ## Approval previews
 
 - **A tool may declare, in `_meta`, the read-only tool that renders its effect.** The gate

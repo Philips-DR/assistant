@@ -7,3 +7,7 @@ __pycache__/
 memory.json
 lexicon.json
 audit.jsonl
+
+# The interface: dependencies, and its build output (the server serves web/dist).
+web/node_modules/
+web/dist/

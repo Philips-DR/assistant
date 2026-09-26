@@ -203,3 +203,23 @@ def test_a_failed_turn_rolls_the_conversation_back_and_keeps_the_notes(tmp_path,
     assert hub.notes == ["did something"]
     assert hub.history[-1]["type"] == "turn_error"
 
+
+
+def test_memory_written_mid_session_reaches_the_next_turn(tmp_path, monkeypatch):
+    """The server runs for days. A fact remembered in one turn must be in the model's
+    context on the next -- found when a live test remembered a preference and the running
+    server kept sending the context it had loaded at startup."""
+    import assistant.server as server
+
+    seen = []
+
+    async def recording_turn(*_args, context="", **_kwargs):
+        seen.append(context)
+    monkeypatch.setattr(server, "run_turn", recording_turn)
+
+    fresh = iter(["old context", "context with the new fact"])
+    hub = Hub(ToolRegistry([]), config=None, context="startup", audit_path=tmp_path / "a.jsonl",
+              refresh_context=lambda: next(fresh))
+    run(hub.run("first"))
+    run(hub.run("second"))
+    assert seen == ["old context", "context with the new fact"]
